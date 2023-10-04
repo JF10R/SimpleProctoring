@@ -7,4 +7,3 @@ The app uses WebRTC technology to enable real-time communication between the stu
 
 ⚠️The app is in active development, this section could be outdated ⚠️
 
-* [Swoole](https://github.com/swoole/swoole-src)
