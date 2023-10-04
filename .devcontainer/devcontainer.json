@@ -35,11 +35,12 @@
 			"onAutoForward": "notify"
 		},
 		"9501": {
-			"label": "Swoole Websocket Server",
+			"label": "Websocket Server ?",
 			"onAutoForward": "notify"
-		},
+		}
 		
-	}
+	},
+	"postCreateCommand": "composer install"
 
 	// Use 'postCreateCommand' to run commands after the container is created.
 	// "postCreateCommand": "sudo chmod a+x \"$(pwd)\" && sudo rm -rf /var/www/html && sudo ln -s \"$(pwd)\" /var/www/html"

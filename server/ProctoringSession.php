@@ -2,8 +2,6 @@
 
 namespace SimpleProctoring\Proctoring;
 
-use SimpleProctoring\User;
-
 class ProctoringSession
 {
     private string $sessionId;

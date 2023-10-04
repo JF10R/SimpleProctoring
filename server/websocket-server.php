@@ -1,76 +1,108 @@
 <?php
-use Swoole\WebSocket\Server;
 
-use SimpleProctoring\Proctoring\ProctoringSession;
+use Ratchet\MessageComponentInterface;
+use Ratchet\ConnectionInterface;
+use Ratchet\Server\IoServer;
+use Ratchet\Http\HttpServer;
+use Ratchet\WebSocket\WsServer;
 
-$server = new Server('0.0.0.0', 9501);
+require_once 'vendor/autoload.php';
+require_once 'ProctoringSession.php';
 
-$server->on('start', function () {
-    echo "WebSocket server started\n";
-});
+class ProctoringServer implements MessageComponentInterface
+{
+    protected $proctoringSessions;
 
-$server->on('open', function (Server $server, Swoole\Http\Request $request) {
-    echo "WebSocket connection opened: {$request->fd}\n";
-});
-
-$server->on('message', function (Server $server, Swoole\WebSocket\Frame $frame) {
-    $data = json_decode($frame->data, true);
-
-    if ($data['type'] === 'join') {
-        // Create a new ProctoringSession instance for the WebSocket connection
-        $proctoringSession = new ProctoringSession($data['studentId'], $data['proctorId']);
-
-        // Store the ProctoringSession instance in the data structure
-        $proctoringSessions[$frame->fd] = $proctoringSession;
-
-        // Send a message to the client indicating that the session has started
-        $server->push($frame->fd, json_encode(['type' => 'session-started', 'sessionId' => $proctoringSession->getSessionId()]));
-    } else if ($data['type'] === 'start-screen-sharing') {
-        // Get the ProctoringSession instance for the WebSocket connection
-        $proctoringSession = $proctoringSessions[$frame->fd];
-
-        // Start screen sharing for the ProctoringSession instance
-        $proctoringSession->startScreenSharing();
-
-        // Send a message to the other client indicating that screen sharing has started
-        $otherFd = ($frame->fd === $proctoringSession->getStudentId()) ? $proctoringSession->getProctorId() : $proctoringSession->getStudentId();
-        $server->push($otherFd, json_encode(['type' => 'screen-sharing-started']));
-    } else if ($data['type'] === 'stop-screen-sharing') {
-        // Get the ProctoringSession instance for the WebSocket connection
-        $proctoringSession = $proctoringSessions[$frame->fd];
-
-        // Stop screen sharing for the ProctoringSession instance
-        $proctoringSession->stopScreenSharing();
-
-        // Send a message to the other client indicating that screen sharing has stopped
-        $otherFd = ($frame->fd === $proctoringSession->getStudentId()) ? $proctoringSession->getProctorId() : $proctoringSession->getStudentId();
-        $server->push($otherFd, json_encode(['type' => 'screen-sharing-stopped']));
-    } else if ($data['type'] === 'start-webcam-sharing') {
-        // Get the ProctoringSession instance for the WebSocket connection
-        $proctoringSession = $proctoringSessions[$frame->fd];
-
-        // Start webcam sharing for the ProctoringSession instance
-        $proctoringSession->startWebcamSharing();
-
-        // Send a message to the other client indicating that webcam sharing has started
-        $otherFd = ($frame->fd === $proctoringSession->getStudentId()) ? $proctoringSession->getProctorId() : $proctoringSession->getStudentId();
-        $server->push($otherFd, json_encode(['type' => 'webcam-sharing-started']));
-    } else if ($data['type'] === 'stop-webcam-sharing') {
-        // Get the ProctoringSession instance for the WebSocket connection
-        $proctoringSession = $proctoringSessions[$frame->fd];
-
-        // Stop webcam sharing for the ProctoringSession instance
-        $proctoringSession->stopWebcamSharing();
-
-        // Send a message to the other client indicating that webcam sharing has stopped
-        $otherFd = ($frame->fd === $proctoringSession->getStudentId()) ? $proctoringSession->getProctorId() : $proctoringSession->getStudentId();
-        $server->push($otherFd, json_encode(['type' => 'webcam-sharing-stopped']));
+    public function __construct()
+    {
+        $this->proctoringSessions = new \SplObjectStorage();
     }
-});
 
-$server->on('close', function (Server $server, int $fd) {
-    echo "WebSocket connection closed: $fd\n";
-});
+    public function onOpen(ConnectionInterface $conn)
+    {
+        echo "WebSocket connection opened: {$conn->resourceId}\n";
+    }
 
-$server->start();
-?>
+    public function onMessage(ConnectionInterface $from, $msg)
+    {
+        $data = json_decode($msg, true);
+
+        if ($data['type'] === 'join') {
+            // Create a new ProctoringSession instance for the WebSocket connection
+            $proctoringSession = new ProctoringSession($data['studentId'], $data['proctorId']);
+
+            // Store the ProctoringSession instance in the data structure
+            $this->proctoringSessions->attach($from, $proctoringSession);
+
+            // Send a message to the client indicating that the session has started
+            $from->send(json_encode(['type' => 'session-started', 'sessionId' => $proctoringSession->getSessionId()]));
+        } else if ($data['type'] === 'start-screen-sharing') {
+            // Get the ProctoringSession instance for the WebSocket connection
+            $proctoringSession = $this->proctoringSessions[$from];
+
+            // Start screen sharing for the ProctoringSession instance
+            $proctoringSession->startScreenSharing();
+
+            // Send a message to the other client indicating that screen sharing has started
+            $otherConn = ($from === $proctoringSession->getStudentConnection()) ? $proctoringSession->getProctorConnection() : $proctoringSession->getStudentConnection();
+            $otherConn->send(json_encode(['type' => 'screen-sharing-started']));
+        } else if ($data['type'] === 'stop-screen-sharing') {
+            // Get the ProctoringSession instance for the WebSocket connection
+            $proctoringSession = $this->proctoringSessions[$from];
+
+            // Stop screen sharing for the ProctoringSession instance
+            $proctoringSession->stopScreenSharing();
+
+            // Send a message to the other client indicating that screen sharing has stopped
+            $otherConn = ($from === $proctoringSession->getStudentConnection()) ? $proctoringSession->getProctorConnection() : $proctoringSession->getStudentConnection();
+            $otherConn->send(json_encode(['type' => 'screen-sharing-stopped']));
+        } else if ($data['type'] === 'start-webcam-sharing') {
+            // Get the ProctoringSession instance for the WebSocket connection
+            $proctoringSession = $this->proctoringSessions[$from];
+
+            // Start webcam sharing for the ProctoringSession instance
+            $proctoringSession->startWebcamSharing();
+
+            // Send a message to the other client indicating that webcam sharing has started
+            $otherConn = ($from === $proctoringSession->getStudentConnection()) ? $proctoringSession->getProctorConnection() : $proctoringSession->getStudentConnection();
+            $otherConn->send(json_encode(['type' => 'webcam-sharing-started']));
+        } else if ($data['type'] === 'stop-webcam-sharing') {
+            // Get the ProctoringSession instance for the WebSocket connection
+            $proctoringSession = $this->proctoringSessions[$from];
+
+            // Stop webcam sharing for the ProctoringSession instance
+            $proctoringSession->stopWebcamSharing();
+
+            // Send a message to the other client indicating that webcam sharing has stopped
+            $otherConn = ($from === $proctoringSession->getStudentConnection()) ? $proctoringSession->getProctorConnection() : $proctoringSession->getStudentConnection();
+            $otherConn->send(json_encode(['type' => 'webcam-sharing-stopped']));
+        }
+    }
+
+    public function onClose(ConnectionInterface $conn)
+    {
+        echo "WebSocket connection closed: {$conn->resourceId}\n";
+
+        // Remove the ProctoringSession instance from the data structure
+        $this->proctoringSessions->detach($conn);
+    }
+
+    public function onError(ConnectionInterface $conn, \Exception $e)
+    {
+        echo "WebSocket error: {$e->getMessage()}\n";
+
+        // Close the connection on error
+        $conn->close();
+    }
+}
+
+$server = IoServer::factory(
+    new HttpServer(
+        new WsServer(
+            new ProctoringServer()
+        )
+    ),
+    9501
+);
+
+$server->run();
